@@ -6,8 +6,10 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
+case class Location(offset: Int, length: Int)
+
 class Segment(val location: String) {
-  private val index: mutable.Map[String, Int] = new ConcurrentHashMap[String, Int]().asScala
+  private val index: mutable.Map[String, Location] = new ConcurrentHashMap[String, Location]().asScala
   private val offset: AtomicInteger = new AtomicInteger(0)
 
   //TODO if exists read from file
@@ -18,26 +20,30 @@ class Segment(val location: String) {
   //lock needed for offset
   def add(key: String, value: String): Unit = {
     val keyVal = key + value
-    val payload = key.length + "," + value.length + "," + keyVal + "," + checkSum(keyVal)
-    val entry = payload.length + "," + payload + '\n'
+    val entry = key.length + "," + value.length + "," + keyVal + "," + checkSum(keyVal) + '\n'
 
     Files.write(filePath, entry.getBytes(), StandardOpenOption.APPEND)
 
-    index += ((key, offset.get()))
+    val valOffset = key.length + 1 + entry.toStream
+      .zipWithIndex
+      .filter(_._1 == ',')
+      .map(_._2)
+      .drop(1)
+      .head
+
+    index += ((key, Location(valOffset + offset.get, value.length)))
     offset.getAndAdd(entry.length)
   }
 
   def get(key: String): Option[String] = index.get(key) match {
     case None => None
-    case Some(value) => Some(getKeyValue(value)._2)
+    case Some(value) => Some(getValue(value))
   }
+
   //should be a lock
   def setDeleteFlag(key: String): Unit = {
-    val payload = key.length + "," + "DEL" + "," + key + "," + checkSum(key)
-    val entry = payload.length + "," + payload + '\n'
-
+    val entry = key.length + "," + "DEL" + "," + key + "," + checkSum(key) + '\n'
     Files.write(filePath, entry.getBytes(), StandardOpenOption.APPEND)
-    index += ((key, offset.get()))
     offset.getAndAdd(entry.length)
   }
 
@@ -47,6 +53,12 @@ class Segment(val location: String) {
 
   private def checkSum(entry: String): String = "0000"
 
+  private def getValue(loc: Location): String = {
+    file.seek(loc.offset)
+    val bytes = new Array[Byte](loc.length)
+    file.read(bytes)
+    new String(bytes)
+  }
 
   //do in one reach cache the value position in index
   private def getKeyValue(offSet: Int): (String, String) = {
