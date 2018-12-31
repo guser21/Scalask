@@ -15,10 +15,11 @@ class Segment(val location: String) {
   Files.createFile(filePath)
   private val file = new RandomAccessFile(filePath.toString, "rw")
 
+  //lock needed for offset
   def add(key: String, value: String): Unit = {
     val keyVal = key + value
-    val keyValue = key.length + "," + value.length + "," + keyVal + "," + checkSum(keyVal)
-    val entry = keyValue.length + "," + keyValue + '\n'
+    val payload = key.length + "," + value.length + "," + keyVal + "," + checkSum(keyVal)
+    val entry = payload.length + "," + payload + '\n'
 
     Files.write(filePath, entry.getBytes(), StandardOpenOption.APPEND)
 
@@ -26,17 +27,28 @@ class Segment(val location: String) {
     offset.getAndAdd(entry.length)
   }
 
-  def get(key: String): Option[String] = {
-    index.get(key) match {
-      case None => None
-      case Some(value) => Some(getKeyValue(value)._2)
-    }
+  def get(key: String): Option[String] = index.get(key) match {
+    case None => None
+    case Some(value) => Some(getKeyValue(value)._2)
   }
+  //should be a lock
+  def setDeleteFlag(key: String): Unit = {
+    val payload = key.length + "," + "DEL" + "," + key + "," + checkSum(key)
+    val entry = payload.length + "," + payload + '\n'
+
+    Files.write(filePath, entry.getBytes(), StandardOpenOption.APPEND)
+    index += ((key, offset.get()))
+    offset.getAndAdd(entry.length)
+  }
+
+  def remove(key: String): Unit = index.remove(key)
 
   def size(): Int = offset.get()
 
   private def checkSum(entry: String): String = "0000"
 
+
+  //do in one reach cache the value position in index
   private def getKeyValue(offSet: Int): (String, String) = {
     file.seek(offSet)
 

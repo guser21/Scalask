@@ -5,7 +5,7 @@ import scala.collection.mutable
 object SegList {
   //variable without new what does it mean
   private val segments = new mutable.MutableList[Segment]
-  private val fileLimit = 1024  //1mb
+  private val fileLimit = 1024 //1mb
   private val fileId = new AtomicInteger(0)
   private val logFolder = "./log-files"
 
@@ -18,9 +18,11 @@ object SegList {
     curSegment.add(key, value)
   }
 
+  //lock
   def get(key: String): Option[String] = segments.view.reverse.map(_.get(key)).find(_.isDefined).flatten
 
+  //lock
   def remove(key: String): Unit = {
-
+    segments.foreach(_.remove(key))
   }
 }

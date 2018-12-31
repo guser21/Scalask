@@ -2,7 +2,6 @@ import java.io.File
 import java.nio.file.{Files, Paths}
 import java.util.concurrent.atomic.AtomicInteger
 
-import scala.collection.mutable
 
 //Todo concurrent map
 
@@ -31,12 +30,11 @@ class Bitcask extends DB {
   }
 
 
-  //TODO new file every x entries
   //TODO on start read all files
   override def put(key: String, value: String): Unit = SegList.put(key, value)
 
   override def get(key: String): Option[String] = SegList.get(key)
 
-  override def remove(key: String): Unit = SegList.get(key)
+  override def remove(key: String): Unit = SegList.remove(key)
 
 }
