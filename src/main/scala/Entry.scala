@@ -3,14 +3,14 @@ import java.io.RandomAccessFile
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
+//TODO one more abstraction of Entry
+//TODO how to have all of this abstracted with RemoveFlag as well
 sealed trait Entry {
-  //TODO
   def getBytes: Array[Byte] = toString.getBytes()
 
   def length = toString.length
-
-
 }
+
 
 object Entry {
   def checkSum(str: String): String = "0000"
@@ -39,7 +39,7 @@ object Entry {
     }
   }
 
-   def getEntryLen(str: String): Int = {
+  def getEntryLen(str: String): Int = {
 
     val keyLenStr = str.takeWhile(_ != ',')
     val keyLenInt = keyLenStr.foldLeft(0)((cur, c) => cur * 10 + (c - '0'))
@@ -62,7 +62,8 @@ object Entry {
     var offset = 0
     while (offset < file.length()) {
       var entryString = file.readLine() //the length of key and value should be on the same line
-      entryString+="\n"//TODO proper encoding
+      entryString += "\n"
+      //TODO proper encoding
       val entryLen = getEntryLen(entryString)
 
       if (entryString.length < entryLen) {
@@ -85,10 +86,14 @@ object Entry {
     res
   }
 
+  def fromFile(segment: Segment): ListBuffer[(Entry, Int)] = fromFile(segment.getFileLocation)
+
+
 }
 
 case class RemoveFlag(key: String) extends Entry {
   private lazy val entry = key.length + "," + "DEL" + "," + key + "," + Entry.checkSum(key) + '\n'
+
   override def toString: String = entry
 }
 
