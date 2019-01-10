@@ -81,7 +81,7 @@ class SegList(logFolder: String, scheduler: MergeScheduler) {
         if (segments.isEmpty || segments.last.size > fileLimit) {
           val id = fileId.incrementAndGet()
           segments += new Segment(id, logFolder)
-//          scheduler.notifySegmentAdded(this)
+          scheduler.notifySegmentAdded(this)
         }
       } match {
         //in case of success reacquire read lock, as it has been hold

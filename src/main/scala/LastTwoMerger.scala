@@ -57,7 +57,8 @@ object LastTwoMerger extends Merger {
 
 
   override def compressAsync(segList: SegList): Unit = Future {
-    LastTwoMerger.synchronized{
+    LastTwoMerger.synchronized
+    {
       compress(segList)
     }
   }(global)
