@@ -7,7 +7,6 @@ import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
 class SegList(logFolder: String, scheduler: MergeScheduler) {
-
   val segments = new mutable.ListBuffer[Segment]
   private val fileLimit = 1024 //1kb
   private val fileId = new AtomicInteger(0)
@@ -18,9 +17,7 @@ class SegList(logFolder: String, scheduler: MergeScheduler) {
   if (!Files.exists(Paths.get(logFolder))) Files.createDirectory(Paths.get(logFolder))
 
 
-  // TODO extract to function
-  segmentListWriteLock.lock()
-  Try({
+  acquireSegListWriteLock({
     new File(logFolder)
       .listFiles()
       .map(_.getName)
@@ -28,47 +25,42 @@ class SegList(logFolder: String, scheduler: MergeScheduler) {
       .sorted
       .map(id => new Segment(id, logFolder + id + ".log"))
       .foreach(seg => {
-        //absolutely non readable
         seg.load().foreach(key => segments.foreach(cs => cs.removeFromIndex(key)))
         segments += seg
       })
-  }) match {
-    case Failure(exception) => segmentListWriteLock.unlock(); throw exception
-    case Success(_) => segmentListWriteLock.unlock()
-  }
+  })
+
+  def put(key: String, value: String): Unit = acquireSegListReadLock(availableSegment().add(key, value))
 
 
-  def put(key: String, value: String): Unit = {
-    segmentListReadLock.lock()
-    Try(availableSegment().add(key, value)) match {
-      case Failure(exception) => segmentListReadLock.unlock(); throw exception
-      case Success(_) => segmentListReadLock.unlock()
+  def get(key: String): Option[String] = acquireSegListReadLock({
+    segments.view.reverse.map(_.get(key)).find(_ != NoInfo()).getOrElse(NotInDatabase()) match {
+      case NotInDatabase() => None
+      case HasValue(value) => Option(value)
+      case NoInfo() => throw new IllegalStateException("Should have been filtered")
     }
-  }
+  })
 
 
-  def get(key: String): Option[String] = {
+  def remove(key: String): Unit = acquireSegListReadLock(availableSegment().setDeleteFlag(key))
+
+  private def acquireSegListReadLock[T](criticalSection: => T): T = {
     segmentListReadLock.lock()
     Try {
-      segments.view.reverse.map(_.get(key)).find(_ != NoInfo()).getOrElse(NotInDatabase()) match {
-        case NotInDatabase() => None
-        case HasValue(value) => Option(value)
-        case NoInfo() => throw new IllegalStateException("Should have been filtered")
-      }
-    }
-    match {
+      criticalSection
+    } match {
       case Failure(exception) => segmentListReadLock.unlock(); throw exception
       case Success(res) => segmentListReadLock.unlock(); res
     }
   }
 
-  def remove(key: String): Unit = {
-    segmentListReadLock.lock()
+  private def acquireSegListWriteLock[T](criticalSection: => T): T = {
+    segmentListWriteLock.lock()
     Try {
-      availableSegment().setDeleteFlag(key)
+      criticalSection
     } match {
-      case Failure(exception) => segmentListReadLock.unlock(); throw exception
-      case Success(_) => segmentListReadLock.unlock()
+      case Failure(exception) => segmentListWriteLock.unlock(); throw exception
+      case Success(res) => segmentListWriteLock.unlock(); res
     }
   }
 
@@ -86,7 +78,7 @@ class SegList(logFolder: String, scheduler: MergeScheduler) {
       } match {
         //in case of success reacquire read lock, as it has been hold
         case Success(_) => segmentListWriteLock.unlock(); segmentListReadLock.lock()
-        //just realease all locks
+        //just release all locks
         case Failure(exception) => segmentListWriteLock.unlock(); throw exception
       }
     }

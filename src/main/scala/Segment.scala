@@ -29,94 +29,58 @@ class Segment(var id: Int, val logFolder: String) {
   def getFileLocation = fileLocation
 
   //lock needed for offset
-  def add(key: String, value: String): Unit = {
-    writeLock.lock()
-    Try {
-      val entry = KeyVal(key, value)
-      Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
-      index += ((key, ValueLocation(entry.valueIndex + offset.get, value.length)))
-      offset.getAndAdd(entry.length)
+  def add(key: String, value: String): Unit = acquireWriteLock({
+    val entry = KeyVal(key, value)
+    Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
+    index += ((key, ValueLocation(entry.valueIndex + offset.get, value.length)))
+    offset.getAndAdd(entry.length)
 
-      removedKeys.remove(key)
-    } match {
-      case Failure(exception) => writeLock.unlock(); throw exception
-      case Success(_) => writeLock.unlock()
-    }
-  }
+    removedKeys.remove(key)
+  })
 
-  def get(key: String): KeyState = {
-    readerLock.lock()
-    Try {
-      if (removedKeys.contains(key)) return NotInDatabase()
-      index.get(key) match {
-        case None => NoInfo()
-        case Some(value) => HasValue(getValue(value))
-      }
-    } match {
-      case Failure(exception) => readerLock.unlock(); throw exception
-      case Success(value) => readerLock.unlock(); value
+
+  def get(key: String): KeyState = acquireReadLock({
+    if (removedKeys.contains(key)) return NotInDatabase()
+    index.get(key) match {
+      case None => NoInfo()
+      case Some(value) => HasValue(getValue(value))
     }
-  }
+  })
 
 
   private def getValue(loc: ValueLocation): String = {
     //lock is held form get
-      val bytes = new Array[Byte](loc.length)
-      file.seek(loc.offset)
-      file.read(bytes)
-      new String(bytes)
+    val bytes = new Array[Byte](loc.length)
+    file.seek(loc.offset)
+    file.read(bytes)
+    new String(bytes)
   }
 
-  def setDeleteFlag(key: String): Unit = {
-    writeLock.lock()
+  def setDeleteFlag(key: String): Unit = acquireWriteLock({
+    val entry = RemoveFlag(key)
+    Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
+    offset.getAndAdd(entry.length)
 
-    Try {
+    removedKeys.add(key)
+  })
 
-      val entry = RemoveFlag(key)
-      Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
-      offset.getAndAdd(entry.length)
 
-      removedKeys.add(key)
-    } match {
-      case Failure(exception) => writeLock.unlock(); throw exception
-      case Success(_) => writeLock.unlock()
-    }
-  }
+  def removeFromIndex(key: String): Unit = acquireWriteLock(index.remove(key))
 
-  def removeFromIndex(key: String): Unit = {
-    writeLock.lock()
-    Try {
-      index.remove(key)
-    } match {
-      case Failure(exception) => writeLock.unlock(); throw exception
-      case Success(_) => writeLock.unlock()
-    }
-
-  }
 
   def size: Int = offset.get()
 
-  def delete(): Unit = {
-    writeLock.lock()
-    Try {
-      file.close()
-      Files.delete(filePath)
-    } match {
-      case Failure(exception) => writeLock.unlock(); throw exception
-      case Success(_) => writeLock.unlock()
-    }
-  }
+  def delete(): Unit = acquireWriteLock({
+    file.close()
+    Files.delete(filePath)
+  })
+
 
   //
-  def contains(key: String): Boolean = {
-    readerLock.lock()
-    Try {
-      index.contains(key) && !removedKeys.contains(key)
-    } match {
-      case Failure(exception) => readerLock.unlock(); throw exception
-      case Success(value) => readerLock.unlock(); value
-    }
-  }
+  def contains(key: String): Boolean = acquireReadLock({
+    index.contains(key) && !removedKeys.contains(key)
+  })
+
 
   /**
     * Loads from the specified file then returns list of elements need to be removed from previous blocks
@@ -129,6 +93,27 @@ class Segment(var id: Int, val logFolder: String) {
         case r: RemoveFlag => index.remove(r.key); removedKeys.add(r.key); Option(r.key)
       }
     }.toList
+  }
+
+  def acquireWriteLock[T](criticalSection: => T): T = {
+    writeLock.lock()
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => writeLock.unlock(); throw exception
+      case Success(res) => writeLock.unlock(); res
+    }
+
+  }
+
+  def acquireReadLock[T](criticalSection: => T): T = {
+    readerLock.lock()
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => readerLock.unlock(); throw exception
+      case Success(value) => readerLock.unlock(); value
+    }
   }
 
   def reassignId(newId: Int): Unit = {
