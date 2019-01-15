@@ -1,6 +1,5 @@
 import java.io.File
 import java.nio.file.{Files, Paths}
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
 import scala.collection.mutable
@@ -9,7 +8,7 @@ import scala.util.{Failure, Success, Try}
 class SegList(logFolder: String, scheduler: MergeScheduler) {
   val segments = new mutable.ListBuffer[Segment]
   private val fileLimit = 1024 //1kb
-  private val fileId = new AtomicInteger(0)
+  private var fileId = 0
   val segmentListLock = new ReentrantReadWriteLock()
   val segmentListReadLock: ReentrantReadWriteLock.ReadLock = segmentListLock.readLock()
   val segmentListWriteLock: ReentrantReadWriteLock.WriteLock = segmentListLock.writeLock()
@@ -18,16 +17,27 @@ class SegList(logFolder: String, scheduler: MergeScheduler) {
 
 
   acquireSegListWriteLock({
+
     new File(logFolder)
       .listFiles()
       .map(_.getName)
       .map(e => e.takeWhile(c => c >= '0' && c <= '9').foldLeft(0)((cur, c) => cur * 10 + (c - '0'))) //name to id
       .sorted
-      .map(id => new Segment(id, logFolder + id + ".log"))
+      .map(id => new Segment(id, logFolder))
       .foreach(seg => {
         seg.load().foreach(key => segments.foreach(cs => cs.removeFromIndex(key)))
         segments += seg
       })
+
+    fileId = new File(logFolder)
+      .listFiles()
+      .map(_.getName)
+      .map(e => e.takeWhile(c => c >= '0' && c <= '9').foldLeft(0)((cur, c) => cur * 10 + (c - '0'))) //name to id
+      .foldLeft(0)((cur, e) => Math.max(cur, e))
+
+    //as the read segments are "dead"- we dont add elements to segments of previous sessions
+    //we add new empty segment for the new entries to be added to a clean segment
+    addSegment()
   })
 
   def put(key: String, value: String): Unit = acquireSegListReadLock(availableSegment().add(key, value))
@@ -64,15 +74,14 @@ class SegList(logFolder: String, scheduler: MergeScheduler) {
     }
   }
 
-  def availableSegment(): Segment = {
+  private def availableSegment(): Segment = {
     if (segments.isEmpty || segments.last.size > fileLimit) {
       segmentListReadLock.unlock()
       segmentListWriteLock.lock()
       Try {
         //double check as between lock the state might have changed
         if (segments.isEmpty || segments.last.size > fileLimit) {
-          val id = fileId.incrementAndGet()
-          segments += new Segment(id, logFolder)
+          addSegment()
           scheduler.notifySegmentAdded(this)
         }
       } match {
@@ -83,5 +92,12 @@ class SegList(logFolder: String, scheduler: MergeScheduler) {
       }
     }
     segments.last
+  }
+
+  private def addSegment(): Unit = {
+    fileId = fileId + 1
+    val id = fileId
+    val curSegment = new Segment(id, logFolder)
+    segments += curSegment
   }
 }

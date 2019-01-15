@@ -85,7 +85,6 @@ class Segment(var id: Int, val logFolder: String) {
   /**
     * Loads from the specified file then returns list of elements need to be removed from previous blocks
     **/
-  //TODO move to static companion object
   def load(): List[String] = {
     Entry.fromFile(filePath.toString).flatMap { case (entry, valueOffset) =>
       entry match {

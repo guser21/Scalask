@@ -7,6 +7,8 @@ object Driver extends App {
   (1 to 10000).foreach(e => bitcask.put(e.toString, e.toString))
   (5000 to 10000).foreach(e => bitcask.put(e.toString, (-e).toString))
 
+
+  bitcask.get("400")
   val wrongUpdate = (1 to 3000).map(_ => Random.nextInt(10000))
     .map(_.toString)
     .map(bitcask.get)
