@@ -1,9 +1,15 @@
+import java.util.logging.Logger
+
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
 
 object LastTwoMerger extends Merger {
+  private val log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME)
+
+  private def milis = System.currentTimeMillis() % 1000 * 1000
+
   def compress(segList: SegList): Unit = synchronized {
     val pair = choose(segList)
     //make sure seg1 is the oldest
@@ -12,6 +18,8 @@ object LastTwoMerger extends Merger {
     val mergeSegment = new Segment(-seg2.id, seg2.logFolder)
 
     val removedKeys = new mutable.HashSet[String]()
+
+    log.info(s"Time $milis: merging ${seg1.id} and ${seg2.id}")
 
     Entry.fromFile(seg2).map(_._1).foreach {
       //if in seg2 index =>  no del flag in this segment for that key
@@ -24,15 +32,18 @@ object LastTwoMerger extends Merger {
     }.filter { case (key, _) => !removedKeys.contains(key) }
       .foreach { case (key, value) => mergeSegment.add(key, value) }
 
-
     segList.segmentListWriteLock.lock()
     Try {
+      log.info(s"Time $milis: removing ${seg1.id} and ${seg2.id}")
+
       segList.segments -= seg1
       segList.segments -= seg2
       seg1.delete()
       seg2.delete()
 
       mergeSegment.reassignId(seg2.id)
+      log.info(s"Time $milis: adding  ${seg2.id} as merge of ${seg1.id} ${seg2.id}")
+
       segList.segments.prepend(mergeSegment)
     } match {
       case Success(_) => segList.segmentListWriteLock.unlock()
@@ -40,8 +51,6 @@ object LastTwoMerger extends Merger {
     }
   }
 
-  //TODO better choose
-  // every 2
   private def choose(segList: SegList): (Segment, Segment) = {
     segList.segmentListReadLock.lock()
     Try {

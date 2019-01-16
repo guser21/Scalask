@@ -1,7 +1,4 @@
-import java.io.{BufferedReader, FileReader, RandomAccessFile}
-
-import scala.collection.mutable
-import scala.collection.mutable.ListBuffer
+import java.io.{BufferedReader, FileReader}
 
 //TODO one more abstraction of Entry
 //TODO how to have all of this abstracted with RemoveFlag as well
@@ -13,11 +10,48 @@ sealed trait Entry {
 
 
 object Entry {
-  def checkSum(str: String): String = "0000"
-
   private val checkSumLen = 4
 
-  def parse(str: String): Entry = {
+  def checkSum(str: String): String = "0000"
+
+
+  /**
+    * Returns the entry and the seek offset for the value
+    **/
+  def fromFile(address: String): Stream[(Entry, Int)] = aux(new BufferedReader(new FileReader(address)), 0)
+
+  private def aux(bufferedReader: BufferedReader, offset: Int): Stream[(Entry, Int)] = {
+    import Stream._
+    bufferedReader.readLine() match {
+      case null => empty
+      case line: String => cons(
+        parse(ensureReadFully(line, bufferedReader)) match {
+          case k: KeyVal => (k, k.valueIndex + offset)
+          case r: RemoveFlag => (r, -1)
+        }, aux(bufferedReader, offset + line.length + 1))
+    }
+  }
+
+  def fromFile(segment: Segment): Stream[(Entry, Int)] = fromFile(segment.getFileLocation)
+
+  private def ensureReadFully(entryString: String, bufferedReader: BufferedReader): String = {
+
+    val entryLen = getEntryLen(entryString)
+    var fullString = entryString
+    if (entryString.length < entryLen) {
+      // the -1 is the new line character
+      val shouldRead = entryLen - entryString.length - 1
+      val buffer = new Array[Char](shouldRead)
+      val readLen = bufferedReader.read(buffer)
+
+      if (readLen != shouldRead) throw new IllegalStateException("corrupted files")
+      fullString += new String(buffer)
+    }
+    fullString
+  }
+
+
+  private def parse(str: String): Entry = {
     //TODO checkSum verification
     val keyLenStr = str.takeWhile(_ != ',')
     val keyLenInt = keyLenStr.foldLeft(0)((cur, c) => cur * 10 + (c - '0'))
@@ -37,7 +71,7 @@ object Entry {
     }
   }
 
-  def getEntryLen(str: String): Int = {
+  private def getEntryLen(str: String): Int = {
     val keyLenStr = str.takeWhile(_ != ',')
     val keyLenInt = keyLenStr.foldLeft(0)((cur, c) => cur * 10 + (c - '0'))
     val valLenOrDelStr = str.dropWhile(_ != ',').drop(1).takeWhile(_ != ',')
@@ -46,52 +80,7 @@ object Entry {
     keyLenInt + keyLenStr.length + valLenOrDelStr.length + checkSumLen + {
       if (valLenOrDelStr == "DEL") 0 else valLenInt
     } + 4 //3 commas 1 new line
-
   }
-
-  /**
-    * Returns the entry and the seek offset for the value
-    * TODO how to make a lazy stream out of this
-    **/
-  def fromFile(address: String): ListBuffer[(Entry, Int)] = {
-    val res = new mutable.ListBuffer[(Entry, Int)]
-
-    val file_buffered = new BufferedReader(new FileReader(address))
-
-    var offset = 0
-    var entryString: String = null
-    while ( {
-      //the length of key and value should be on the same line
-      entryString = file_buffered.readLine()
-      entryString != null
-    }) {
-      entryString += "\n"
-      val entryLen = getEntryLen(entryString)
-
-      if (entryString.length < entryLen) {
-        val shouldRead = entryLen - entryString.length
-        val buffer = new Array[Char](shouldRead)
-        val readLen = file_buffered.read(buffer)
-
-        if (readLen != shouldRead) throw new IllegalStateException("corrupted files")
-        entryString += new String(buffer)
-      }
-
-      val curEntry = parse(entryString)
-      val valueIndex = curEntry match {
-        case k: KeyVal => k.valueIndex + offset
-        case _: RemoveFlag => -1
-      }
-      offset += entryString.length
-      res.append((curEntry, valueIndex))
-    }
-    file_buffered.close()
-    res
-  }
-
-
-  def fromFile(segment: Segment): ListBuffer[(Entry, Int)] = fromFile(segment.getFileLocation)
-
 }
 
 
