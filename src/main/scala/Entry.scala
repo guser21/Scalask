@@ -1,4 +1,4 @@
-import java.io.RandomAccessFile
+import java.io.{BufferedReader, FileReader, RandomAccessFile}
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -24,8 +24,6 @@ object Entry {
 
     val keyValChsum = str.dropWhile(_ != ',').drop(1).dropWhile(_ != ',').drop(1)
     val key = keyValChsum.slice(0, keyLenInt)
-
-    //TODO bad code :(
     val valLenOrDel = str.dropWhile(_ != ',').drop(1).takeWhile(_ != ',')
 
     if (valLenOrDel == "DEL") {
@@ -40,7 +38,6 @@ object Entry {
   }
 
   def getEntryLen(str: String): Int = {
-
     val keyLenStr = str.takeWhile(_ != ',')
     val keyLenInt = keyLenStr.foldLeft(0)((cur, c) => cur * 10 + (c - '0'))
     val valLenOrDelStr = str.dropWhile(_ != ',').drop(1).takeWhile(_ != ',')
@@ -58,18 +55,24 @@ object Entry {
     **/
   def fromFile(address: String): ListBuffer[(Entry, Int)] = {
     val res = new mutable.ListBuffer[(Entry, Int)]
-    val file = new RandomAccessFile(address, "r")
+
+    val file_buffered = new BufferedReader(new FileReader(address))
+
     var offset = 0
-    while (offset < file.length()) {
-      var entryString = file.readLine() //the length of key and value should be on the same line
+    var entryString: String = null
+    while ( {
+      //the length of key and value should be on the same line
+      entryString = file_buffered.readLine()
+      entryString != null
+    }) {
       entryString += "\n"
-      //TODO proper encoding
       val entryLen = getEntryLen(entryString)
 
       if (entryString.length < entryLen) {
         val shouldRead = entryLen - entryString.length
-        val buffer = new Array[Byte](shouldRead)
-        val readLen = file.read(buffer)
+        val buffer = new Array[Char](shouldRead)
+        val readLen = file_buffered.read(buffer)
+
         if (readLen != shouldRead) throw new IllegalStateException("corrupted files")
         entryString += new String(buffer)
       }
@@ -82,14 +85,15 @@ object Entry {
       offset += entryString.length
       res.append((curEntry, valueIndex))
     }
-    file.close()
+    file_buffered.close()
     res
   }
 
+
   def fromFile(segment: Segment): ListBuffer[(Entry, Int)] = fromFile(segment.getFileLocation)
 
-
 }
+
 
 case class RemoveFlag(key: String) extends Entry {
   private lazy val entry = key.length + "," + "DEL" + "," + key + "," + Entry.checkSum(key) + '\n'
