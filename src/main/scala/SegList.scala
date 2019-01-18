@@ -7,7 +7,7 @@ import scala.util.{Failure, Success, Try}
 
 class SegList(logFolder: String, scheduler: MergeScheduler) {
   val segments = new mutable.ListBuffer[Segment]
-  private val fileLimit = 1024 //1kb
+  private val fileLimit = 1024 *1024//1kb
   private var fileId = 0
   val segmentListLock = new ReentrantReadWriteLock()
   val segmentListReadLock: ReentrantReadWriteLock.ReadLock = segmentListLock.readLock()

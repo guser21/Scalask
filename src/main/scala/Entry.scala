@@ -1,9 +1,7 @@
 import java.io.{BufferedReader, FileReader}
-import java.nio.charset.StandardCharsets
+import java.util.logging.Logger
 import java.util.zip.CRC32
 
-//TODO one more abstraction of Entry
-//TODO how to have all of this abstracted with RemoveFlag as well
 sealed trait Entry {
   def getBytes: Array[Byte] = toString.getBytes()
 
@@ -28,16 +26,22 @@ case class KeyVal(key: String, value: String) extends Entry {
 
 }
 
-object Entry {
-  private val checkSumLen = 8
 
-  private val crc32Cksum = new CRC32
+object Entry {
+  private val log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME)
+
+  private val checksumLen = 4
+
+  private val crc = new CRC32
 
   def checksum(str: String): String = {
-    crc32Cksum.reset()
-    crc32Cksum.update(str.getBytes)
-    BinaryConverter.longToBinary(crc32Cksum.getValue)
+    crc.reset()
+    crc.update(str.getBytes)
+    alignChecksum((crc.getValue % scala.math.pow(10, checksumLen).toInt).toString)
   }
+
+  //rightPadding
+  def alignChecksum(str: String): String = (1 to (checksumLen - str.length)).foldLeft(str)((cur, _) => cur + "0")
 
   def verify(str: String, chsum: String): Boolean = chsum == checksum(str)
 
@@ -45,47 +49,47 @@ object Entry {
   /**
     * Returns the entry and the seek offset for the value
     **/
-  def fromFile(address: String): Stream[(Entry, Int)] = aux(new BufferedReader(new FileReader(address)), 0)
+  def fromFile(address: String): Stream[(Entry, Int)] = aux(new BufferedReader(new FileReader(address)), 0).filter(_.isDefined).flatten
 
   def fromFile(segment: Segment): Stream[(Entry, Int)] = fromFile(segment.getFileLocation)
 
-  private def aux(bufferedReader: BufferedReader, offset: Int): Stream[(Entry, Int)] = {
+  //optimize
+  private def aux(bufferedReader: BufferedReader, offset: Int): Stream[Option[(Entry, Int)]] = {
     import Stream._
     bufferedReader.readLine() match {
       case null => empty
       case line: String => {
         val fullLine = ensureReadFully(line, bufferedReader)
+        //TODO filter here the optional parse
         cons(parse(fullLine) match {
-          case k: KeyVal =>
-            {
-              5;
-              (k, k.valueIndex + offset)
-
-            }
-          case r: RemoveFlag => (r, -1)
-        }, aux(bufferedReader, offset + fullLine.getBytes(StandardCharsets.US_ASCII).length))
+          case None => None
+          case Some(v) => v match {
+            case k: KeyVal => Some(k, k.valueIndex + offset)
+            case r: RemoveFlag => Some(r, -1)
+          }
+        }, aux(bufferedReader, offset + fullLine.length))
       }
     }
   }
 
   private def ensureReadFully(entryString: String, bufferedReader: BufferedReader): String = {
-
     val expectedLength = getEntryLen(entryString)
-    var fullString = entryString + "\n"
+    val stringBuilder = new StringBuilder(entryString)
+    stringBuilder.append("\n")
 
-    if (fullString.length < expectedLength) {
-      val shouldRead = expectedLength - fullString.length
+    if (stringBuilder.length < expectedLength) {
+      val shouldRead = expectedLength - stringBuilder.length
       val buffer = new Array[Char](shouldRead)
       val readLen = bufferedReader.read(buffer)
 
       if (readLen != shouldRead) throw new IllegalStateException("corrupted files")
-      fullString += new String(buffer)
+      stringBuilder.append(buffer)
     }
-    fullString
+    stringBuilder.toString
   }
 
 
-  private def parse(str: String): Entry = {
+  private def parse(str: String): Option[Entry] = {
     val keyLenStr = str.takeWhile(_ != ',')
     val keyLenInt = keyLenStr.foldLeft(0)((cur, c) => cur * 10 + (c - '0'))
 
@@ -94,19 +98,23 @@ object Entry {
     val valLenOrDel = str.dropWhile(_ != ',').drop(1).takeWhile(_ != ',')
 
     val keyVal = keyValChecksum.takeWhile(_ != ',')
-    val checksum = keyValChecksum.dropWhile(_ != ',').slice(1, 9)
+    val checksum = keyValChecksum.dropWhile(_ != ',').slice(1, 1 + checksumLen)
 
-    if (!verify(keyVal, checksum)) throw new IllegalStateException(s"corrupt files $keyVal $checksum")
+    if (!verify(keyVal, checksum)) {
+      log.warning(s"corrupt entry $keyVal $checksum")
+      return None
+    }
 
-    if (valLenOrDel == "DEL") {
+    val entry = if (valLenOrDel == "DEL") {
       RemoveFlag(key)
     } else {
-
       val valLen = valLenOrDel.foldLeft(0)((acc, e) => 10 * acc + (e - '0'))
       val value = keyValChecksum.slice(keyLenInt, keyLenInt + valLen)
 
       KeyVal(key, value)
     }
+
+    Some(entry)
   }
 
   private def getEntryLen(str: String): Int = {
@@ -115,7 +123,7 @@ object Entry {
     val valLenOrDelStr = str.dropWhile(_ != ',').drop(1).takeWhile(_ != ',')
     val valLenInt = valLenOrDelStr.foldLeft(0)((acc, e) => 10 * acc + (e - '0'))
 
-    keyLenInt + keyLenStr.length + valLenOrDelStr.length + checkSumLen + {
+    keyLenInt + keyLenStr.length + valLenOrDelStr.length + checksumLen + {
       if (valLenOrDelStr == "DEL") 0 else valLenInt
     } + 4 //3 commas 1 new line
   }

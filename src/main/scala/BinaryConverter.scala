@@ -2,23 +2,26 @@
 
 object BinaryConverter {
 
-  def longToBinary(num: Long): String = {
-    val binaryLong = new Array[Char](8)
+  def longToBinary(num: Long): Array[Byte] = {
+    val binaryLong = new Array[Byte](8)
 
-    binaryLong(0) = ((num >>> 56).toInt & 0xFF).toChar
-    binaryLong(1) = ((num >>> 48).toInt & 0xFF).toChar
-    binaryLong(2) = ((num >>> 40).toInt & 0xFF).toChar
-    binaryLong(3) = ((num >>> 32).toInt & 0xFF).toChar
-    binaryLong(4) = ((num >>> 24).toInt & 0xFF).toChar
-    binaryLong(5) = ((num >>> 16).toInt & 0xFF).toChar
-    binaryLong(6) = ((num >>> 8).toInt & 0xFF).toChar
-    binaryLong(7) = ((num >>> 0).toInt & 0xFF).toChar
+    binaryLong(0) = ((num >>> 56).toInt & 0xFF).toByte
+    binaryLong(1) = ((num >>> 48).toInt & 0xFF).toByte
+    binaryLong(2) = ((num >>> 40).toInt & 0xFF).toByte
+    binaryLong(3) = ((num >>> 32).toInt & 0xFF).toByte
+    binaryLong(4) = ((num >>> 24).toInt & 0xFF).toByte
+    binaryLong(5) = ((num >>> 16).toInt & 0xFF).toByte
+    binaryLong(6) = ((num >>> 8).toInt & 0xFF).toByte
+    binaryLong(7) = ((num >>> 0).toInt & 0xFF).toByte
 
-    new String(binaryLong)
+    binaryLong
   }
 
+  //only last 4bytes are important
+  def unsignedIntToBinary(num: Long): Array[Byte] = longToBinary(num).slice(4, 8)
+
   def binaryToLong(str: String): Long = {
-    (binaryToInt(str.substring(0, 4)) << 32).toLong + (binaryToInt(str.substring(4)) & 0xFFFFFFFFL).toLong
+    (binaryToInt(str.substring(0, 4)) << 32).toLong + (binaryToInt(str.substring(4)) & 0xFFFFFFFFL)
   }
 
   private def binaryToInt(str: String): Int = {
