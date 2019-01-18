@@ -32,9 +32,8 @@ object Entry {
 
   private val checksumLen = 4
 
-  private val crc = new CRC32
-
   def checksum(str: String): String = {
+    val crc = new CRC32 // cannot be shared
     crc.reset()
     crc.update(str.getBytes)
     alignChecksum((crc.getValue % scala.math.pow(10, checksumLen).toInt).toString)
@@ -60,13 +59,9 @@ object Entry {
       case null => empty
       case line: String => {
         val fullLine = ensureReadFully(line, bufferedReader)
-        //TODO filter here the optional parse
-        cons(parse(fullLine) match {
-          case None => None
-          case Some(v) => v match {
-            case k: KeyVal => Some(k, k.valueIndex + offset)
-            case r: RemoveFlag => Some(r, -1)
-          }
+        cons(parse(fullLine).map {
+          case k: KeyVal => (k, k.valueIndex + offset)
+          case r: RemoveFlag => (r, -1)
         }, aux(bufferedReader, offset + fullLine.length))
       }
     }
@@ -97,11 +92,11 @@ object Entry {
     val key = keyValChecksum.slice(0, keyLenInt)
     val valLenOrDel = str.dropWhile(_ != ',').drop(1).takeWhile(_ != ',')
 
-    val keyVal = keyValChecksum.takeWhile(_ != ',')
-    val checksum = keyValChecksum.dropWhile(_ != ',').slice(1, 1 + checksumLen)
+    val keyValue = keyValChecksum.takeWhile(_ != ',')
+    val keyValueChecksum = keyValChecksum.dropWhile(_ != ',').slice(1, 1 + checksumLen)
 
-    if (!verify(keyVal, checksum)) {
-      log.warning(s"corrupt entry $keyVal $checksum")
+    if (!verify(keyValue, keyValueChecksum)) {
+      log.warning(s"corrupt entry $keyValue $keyValueChecksum")
       return None
     }
 
@@ -110,10 +105,8 @@ object Entry {
     } else {
       val valLen = valLenOrDel.foldLeft(0)((acc, e) => 10 * acc + (e - '0'))
       val value = keyValChecksum.slice(keyLenInt, keyLenInt + valLen)
-
       KeyVal(key, value)
     }
-
     Some(entry)
   }
 

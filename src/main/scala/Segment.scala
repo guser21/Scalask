@@ -43,18 +43,24 @@ class Segment(var id: Int, val logFolder: String) {
     if (removedKeys.contains(key)) return NotInDatabase()
     index.get(key) match {
       case None => NoInfo()
-      case Some(value) => HasValue(getValue(value))
+      case Some(value) => {
+        val res = getValue(value)
+        HasValue(res)
+      }
     }
   })
 
 
-  private def getValue(loc: ValueLocation): String = {
-    //lock is held form get
+  private def getValue(loc: ValueLocation): String = acquireReadLock({
+    val cur_read_file = new RandomAccessFile(filePath.toString, "rw")
+
     val bytes = new Array[Byte](loc.length)
-    file.seek(loc.offset)
-    file.read(bytes)
+    cur_read_file.seek(loc.offset)
+    cur_read_file.read(bytes)
+
+    cur_read_file.close()
     new String(bytes)
-  }
+  })
 
   def setDeleteFlag(key: String): Unit = acquireWriteLock({
     val entry = RemoveFlag(key)
@@ -85,14 +91,13 @@ class Segment(var id: Int, val logFolder: String) {
   /**
     * Loads from the specified file then returns list of elements need to be removed from previous blocks
     **/
-  def load(): List[String] = {
-    Entry.fromFile(filePath.toString).flatMap { case (entry, valueOffset) =>
-      entry match {
-        case kv: KeyVal => index += ((kv.key, ValueLocation(valueOffset, kv.value.length))); None
-        case r: RemoveFlag => index.remove(r.key); removedKeys.add(r.key); Option(r.key)
-      }
-    }.toList
+  def load(): Stream[String] = Entry.fromFile(filePath.toString).flatMap { case (entry, valueOffset) =>
+    entry match {
+      case kv: KeyVal => index += ((kv.key, ValueLocation(valueOffset, kv.value.length))); None
+      case r: RemoveFlag => index.remove(r.key); removedKeys.add(r.key); Option(r.key)
+    }
   }
+
 
   def acquireWriteLock[T](criticalSection: => T): T = {
     writeLock.lock()
@@ -115,7 +120,7 @@ class Segment(var id: Int, val logFolder: String) {
     }
   }
 
-  def reassignId(newId: Int): Unit = {
+  def reassignId(newId: Int): Unit = acquireWriteLock({
 
     val newFileLocation = s"$logFolder/$newId.log"
     val newPath = Paths.get(newFileLocation)
@@ -131,7 +136,7 @@ class Segment(var id: Int, val logFolder: String) {
       }
       case Failure(exception) => writeLock.unlock(); throw exception
     }
-  }
+  })
 
 
 }

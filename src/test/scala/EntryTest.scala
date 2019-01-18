@@ -1,5 +1,3 @@
-import java.sql.Time
-
 import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
 import scala.sys.process._
@@ -12,7 +10,7 @@ class EntryTest extends FunSuite with BeforeAndAfterAll {
 
   test("Full Test") {
 
-    val bitcask: DB = new Bitcask
+    val bitcask: DB = new Scalask
     (1 to 10000).foreach(e => bitcask.put(e.toString, e.toString))
     (5000 to 10000).foreach(e => bitcask.put(e.toString, (-e).toString))
 
@@ -34,6 +32,7 @@ class EntryTest extends FunSuite with BeforeAndAfterAll {
 
     assertResult(bitcask.get("32445"))(None)
   }
+
 
 
 }

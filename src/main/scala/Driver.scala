@@ -2,7 +2,7 @@ import scala.util.Random
 
 object Driver extends App {
   //  "rm -rf ./log-files" !
-  val bitcask: DB = new Bitcask
+  val bitcask: DB = new Scalask
 
 
   (1 to 10000).foreach(e => bitcask.put(e.toString, e.toString))

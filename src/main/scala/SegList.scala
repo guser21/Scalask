@@ -5,10 +5,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
-class SegList(logFolder: String, scheduler: MergeScheduler) {
+class SegList(logFolder: String, scheduler: MergeScheduler, fileLimit: Int = 1024) {
   val segments = new mutable.ListBuffer[Segment]
-  private val fileLimit = 1024 *1024//1kb
   private var fileId = 0
+
   val segmentListLock = new ReentrantReadWriteLock()
   val segmentListReadLock: ReentrantReadWriteLock.ReadLock = segmentListLock.readLock()
   val segmentListWriteLock: ReentrantReadWriteLock.WriteLock = segmentListLock.writeLock()
@@ -17,7 +17,6 @@ class SegList(logFolder: String, scheduler: MergeScheduler) {
 
 
   acquireSegListWriteLock({
-
     new File(logFolder)
       .listFiles()
       .map(_.getName)
