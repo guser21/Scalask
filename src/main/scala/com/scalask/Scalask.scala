@@ -5,10 +5,10 @@ import com.scalask.model.SegmentList
 
 
 class Scalask extends DB {
+  private val folder = "./log-files/"
 
   val scheduler = new WheneverPossibleScheduler(LastTwoMerger)
   val segList = new SegmentList(folder, scheduler, 1024)
-  private val folder = "./log-files/"
 
   override def put(key: String, value: String): Unit = segList.put(key, value)
 
