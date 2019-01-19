@@ -93,10 +93,10 @@ class SegList(logFolder: String, scheduler: MergeScheduler, fileLimit: Int = 102
     segments.last
   }
 
-  private def addSegment(): Unit = {
+  private def addSegment(): Unit = acquireSegListWriteLock({
     fileId = fileId + 1
     val id = fileId
     val curSegment = new Segment(id, logFolder)
     segments += curSegment
-  }
+  })
 }

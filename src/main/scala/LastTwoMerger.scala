@@ -21,13 +21,13 @@ object LastTwoMerger extends Merger {
 
     log.info(s"Time $milis: merging ${seg1.id} and ${seg2.id}")
 
-    Entry.fromFile(seg2).map(_._1).foreach {
+    Entry.fromFile(seg2).map(_._1).reverse.foreach {
       //if in seg2 index =>  no del flag in this segment for that key
-      case KeyVal(key, value) => if (seg2.contains(key)) mergeSegment.add(key, value)
+      case KeyVal(key, value) => if (seg2.contains(key) && !mergeSegment.contains(key)) mergeSegment.add(key, value)
       case RemoveFlag(key) => removedKeys.add(key)
     }
-    Entry.fromFile(seg1).map(_._1).flatMap {
-      case KeyVal(key, value) => if (seg1.contains(key)) Option(key, value) else None
+    Entry.fromFile(seg1).map(_._1).reverse.flatMap {
+      case KeyVal(key, value) => if (seg1.contains(key) && !mergeSegment.contains(key)) Option(key, value) else None
       case RemoveFlag(_) => None
     }.filter { case (key, _) => !removedKeys.contains(key) }
       .foreach { case (key, value) => mergeSegment.add(key, value) }

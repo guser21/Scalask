@@ -1,4 +1,4 @@
-name := "bitcask"
+name := "scalask"
 
 version := "0.1"
 
