@@ -1,3 +1,5 @@
+package com.scalask.data
+
 sealed trait KeyState
 
 case class HasValue(value: String) extends KeyState

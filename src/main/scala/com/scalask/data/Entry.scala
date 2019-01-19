@@ -1,6 +1,10 @@
+package com.scalask.data
+
 import java.io.{BufferedReader, FileReader}
 import java.util.logging.Logger
 import java.util.zip.CRC32
+
+import com.scalask.model._
 
 sealed trait Entry {
   def getBytes: Array[Byte] = toString.getBytes()

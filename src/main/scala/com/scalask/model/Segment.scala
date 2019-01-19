@@ -1,29 +1,32 @@
+package com.scalask.model
+
 import java.io.RandomAccessFile
 import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
+import com.scalask.data._
+
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
-
 class Segment(var id: Int, val logFolder: String) {
   private val index: mutable.Map[String, ValueLocation] = new ConcurrentHashMap[String, ValueLocation]().asScala
+  private val removedKeys = ConcurrentHashMap.newKeySet[String]().asScala
 
   private val offset: AtomicInteger = new AtomicInteger(0)
-
-  private var fileLocation = s"$logFolder/$id.log"
-  private var filePath = Paths.get(fileLocation)
-  if (!Files.exists(filePath)) Files.createFile(filePath)
-  private var file = new RandomAccessFile(filePath.toString, "rw")
 
   private val lock = new ReentrantReadWriteLock()
   private val writeLock = lock.writeLock()
   private val readerLock = lock.readLock()
 
-  private val removedKeys = ConcurrentHashMap.newKeySet[String]().asScala
+  private var fileLocation = s"$logFolder/$id.log"
+  private var filePath = Paths.get(fileLocation)
+  private var file = new RandomAccessFile(filePath.toString, "rw")
+
+  if (!Files.exists(filePath)) Files.createFile(filePath)
 
   //  private val removedList =
   def getFileLocation = fileLocation
@@ -62,6 +65,16 @@ class Segment(var id: Int, val logFolder: String) {
     new String(bytes)
   })
 
+  def acquireReadLock[T](criticalSection: => T): T = {
+    readerLock.lock()
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => readerLock.unlock(); throw exception
+      case Success(value) => readerLock.unlock(); value
+    }
+  }
+
   def setDeleteFlag(key: String): Unit = acquireWriteLock({
     val entry = RemoveFlag(key)
     Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
@@ -70,9 +83,7 @@ class Segment(var id: Int, val logFolder: String) {
     removedKeys.add(key)
   })
 
-
   def removeFromIndex(key: String): Unit = acquireWriteLock(index.remove(key))
-
 
   def size: Int = offset.get()
 
@@ -81,12 +92,10 @@ class Segment(var id: Int, val logFolder: String) {
     Files.delete(filePath)
   })
 
-
   //
   def contains(key: String): Boolean = acquireReadLock({
     index.contains(key) && !removedKeys.contains(key)
   })
-
 
   /**
     * Loads from the specified file then returns list of elements need to be removed from previous blocks
@@ -95,28 +104,6 @@ class Segment(var id: Int, val logFolder: String) {
     entry match {
       case kv: KeyVal => index += ((kv.key, ValueLocation(valueOffset, kv.value.length))); None
       case r: RemoveFlag => index.remove(r.key); removedKeys.add(r.key); Option(r.key)
-    }
-  }
-
-
-  def acquireWriteLock[T](criticalSection: => T): T = {
-    writeLock.lock()
-    Try {
-      criticalSection
-    } match {
-      case Failure(exception) => writeLock.unlock(); throw exception
-      case Success(res) => writeLock.unlock(); res
-    }
-
-  }
-
-  def acquireReadLock[T](criticalSection: => T): T = {
-    readerLock.lock()
-    Try {
-      criticalSection
-    } match {
-      case Failure(exception) => readerLock.unlock(); throw exception
-      case Success(value) => readerLock.unlock(); value
     }
   }
 
@@ -137,6 +124,17 @@ class Segment(var id: Int, val logFolder: String) {
       case Failure(exception) => writeLock.unlock(); throw exception
     }
   })
+
+  def acquireWriteLock[T](criticalSection: => T): T = {
+    writeLock.lock()
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => writeLock.unlock(); throw exception
+      case Success(res) => writeLock.unlock(); res
+    }
+
+  }
 
 
 }

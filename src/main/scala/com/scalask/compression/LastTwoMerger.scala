@@ -1,4 +1,9 @@
+package com.scalask.compression
+
 import java.util.logging.Logger
+
+import com.scalask.data._
+import com.scalask.model._
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -8,10 +13,14 @@ import scala.util.{Failure, Success, Try}
 object LastTwoMerger extends Merger {
   private val log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME)
 
-  private def milis = System.currentTimeMillis() % 1000 * 1000
+  override def compressAsync(segList: SegmentList): Unit = Future {
+    LastTwoMerger.synchronized {
+      compress(segList)
+    }
+  }(global)
 
-  def compress(segList: SegList): Unit = synchronized {
-    val pair = choose(segList)
+  def compress(segmentList: SegmentList): Unit = synchronized {
+    val pair = choose(segmentList)
     //make sure seg1 is the oldest
     val (seg1, seg2) = if (pair._1.id > pair._2.id) pair.swap else pair
 
@@ -27,31 +36,36 @@ object LastTwoMerger extends Merger {
       case RemoveFlag(key) => removedKeys.add(key)
     }
     Entry.fromFile(seg1).map(_._1).reverse.flatMap {
-      case KeyVal(key, value) => if (seg1.contains(key) && !mergeSegment.contains(key)) Option(key, value) else None
-      case RemoveFlag(_) => None
-    }.filter { case (key, _) => !removedKeys.contains(key) }
+      case KeyVal(key, value) => Option(key, value)
+      case RemoveFlag(key) => removedKeys.add(key); None
+    }.filter { case (key, _) => !mergeSegment.contains(key) }
+      .filter { case (key, _) => !removedKeys.contains(key) }
+      .filter { case (key, _) => seg1.contains(key) }
       .foreach { case (key, value) => mergeSegment.add(key, value) }
 
-    segList.segmentListWriteLock.lock()
+    //TODO locking with interface
+    segmentList.segmentListWriteLock.lock()
     Try {
       log.info(s"Time $milis: removing ${seg1.id} and ${seg2.id}")
 
-      segList.segments -= seg1
-      segList.segments -= seg2
+      segmentList.segments -= seg1
+      segmentList.segments -= seg2
       seg1.delete()
       seg2.delete()
 
       mergeSegment.reassignId(seg2.id)
       log.info(s"Time $milis: adding  ${seg2.id} as merge of ${seg1.id} ${seg2.id}")
 
-      segList.segments.prepend(mergeSegment)
+      segmentList.segments.prepend(mergeSegment)
     } match {
-      case Success(_) => segList.segmentListWriteLock.unlock()
-      case Failure(exception) => segList.segmentListWriteLock.unlock(); throw exception
+      case Success(_) => segmentList.segmentListWriteLock.unlock()
+      case Failure(exception) => segmentList.segmentListWriteLock.unlock(); throw exception
     }
   }
 
-  private def choose(segList: SegList): (Segment, Segment) = {
+  private def milis = System.currentTimeMillis() % 1000 * 1000
+
+  private def choose(segList: SegmentList): (Segment, Segment) = {
     segList.segmentListReadLock.lock()
     Try {
       if (segList.segments.size < 3) throw new IllegalArgumentException("too few segments in seglist to merge")
@@ -63,12 +77,4 @@ object LastTwoMerger extends Merger {
       case Failure(exception) => segList.segmentListReadLock.unlock(); throw exception
     }
   }
-
-
-  override def compressAsync(segList: SegList): Unit = Future {
-    LastTwoMerger.synchronized
-    {
-      compress(segList)
-    }
-  }(global)
 }

@@ -1,9 +1,12 @@
+package com.scalask
+
+import scala.sys.process._
 import scala.util.Random
 
 object Driver extends App {
-  //  "rm -rf ./log-files" !
-  val scalask: DB = new Scalask
+  "rm -rf ./log-files" !
 
+  val scalask: DB = new Scalask
 
   (1 to 10000).foreach(e => scalask.put(e.toString, e.toString))
   (5000 to 10000).foreach(e => scalask.put(e.toString, (-e).toString))

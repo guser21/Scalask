@@ -1,6 +1,9 @@
-
+package com.scalask.data
 
 object BinaryConverter {
+
+  //only last 4bytes are important
+  def unsignedIntToBinary(num: Long): Array[Byte] = longToBinary(num).slice(4, 8)
 
   def longToBinary(num: Long): Array[Byte] = {
     val binaryLong = new Array[Byte](8)
@@ -16,9 +19,6 @@ object BinaryConverter {
 
     binaryLong
   }
-
-  //only last 4bytes are important
-  def unsignedIntToBinary(num: Long): Array[Byte] = longToBinary(num).slice(4, 8)
 
   def binaryToLong(str: String): Long = {
     (binaryToInt(str.substring(0, 4)) << 32).toLong + (binaryToInt(str.substring(4)) & 0xFFFFFFFFL)
