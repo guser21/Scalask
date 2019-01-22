@@ -4,7 +4,8 @@ import java.io.RandomAccessFile
 import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.locks.ReentrantReadWriteLock
+import java.util.concurrent.locks.StampedLock
+import java.util.logging.Logger
 
 import com.scalask.data._
 
@@ -13,12 +14,13 @@ import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
 class Segment(var id: Int, val logFolder: String) {
+  private val log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME)
+
   private val index: mutable.Map[String, ValueLocation] = new ConcurrentHashMap[String, ValueLocation]().asScala
   private val removedKeys = ConcurrentHashMap.newKeySet[String]().asScala
 
   private val offset: AtomicInteger = new AtomicInteger(0)
-
-  private val lock = new ReentrantReadWriteLock()
+  private val lock = new StampedLock().asReadWriteLock()
   private val writeLock = lock.writeLock()
   private val readerLock = lock.readLock()
 
@@ -32,7 +34,9 @@ class Segment(var id: Int, val logFolder: String) {
   def getFileLocation = fileLocation
 
   //lock needed for offset
-  def add(key: String, value: String): Unit = acquireWriteLock({
+  def put(key: String, value: String): Unit = acquireWriteLock({
+    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id put - key: $key")
+
     val entry = KeyVal(key, value)
     Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
     index += ((key, ValueLocation(entry.valueIndex + offset.get, value.length)))
@@ -43,18 +47,17 @@ class Segment(var id: Int, val logFolder: String) {
 
 
   def get(key: String): KeyState = acquireReadLock({
+    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id get - key: $key")
+
     if (removedKeys.contains(key)) return NotInDatabase()
     index.get(key) match {
       case None => NoInfo()
-      case Some(value) => {
-        val res = getValue(value)
-        HasValue(res)
-      }
+      case Some(value) => HasValue(getValue(value))
     }
   })
 
 
-  private def getValue(loc: ValueLocation): String = acquireReadLock({
+  private def getValue(loc: ValueLocation): String = {
     val cur_read_file = new RandomAccessFile(filePath.toString, "rw")
 
     val bytes = new Array[Byte](loc.length)
@@ -63,37 +66,35 @@ class Segment(var id: Int, val logFolder: String) {
 
     cur_read_file.close()
     new String(bytes)
-  })
-
-  def acquireReadLock[T](criticalSection: => T): T = {
-    readerLock.lock()
-    Try {
-      criticalSection
-    } match {
-      case Failure(exception) => readerLock.unlock(); throw exception
-      case Success(value) => readerLock.unlock(); value
-    }
   }
 
   def setDeleteFlag(key: String): Unit = acquireWriteLock({
+    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id setDeleteFlag - key: $key")
+
     val entry = RemoveFlag(key)
     Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
     offset.getAndAdd(entry.length)
-
     removedKeys.add(key)
   })
 
-  def removeFromIndex(key: String): Unit = acquireWriteLock(index.remove(key))
+  def removeFromIndex(key: String): Unit = acquireWriteLock({
+    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id removeFromIndex - key: $key")
+
+    index.remove(key)
+  })
 
   def size: Int = offset.get()
 
   def delete(): Unit = acquireWriteLock({
+    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id delete segment")
+
     file.close()
     Files.delete(filePath)
   })
 
-  //
   def contains(key: String): Boolean = acquireReadLock({
+    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id contains - key: $key")
+
     index.contains(key) && !removedKeys.contains(key)
   })
 
@@ -108,22 +109,26 @@ class Segment(var id: Int, val logFolder: String) {
   }
 
   def reassignId(newId: Int): Unit = acquireWriteLock({
+    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id reassignId - newId $newId")
 
     val newFileLocation = s"$logFolder/$newId.log"
     val newPath = Paths.get(newFileLocation)
-    writeLock.lock()
-    Try(Files.move(filePath, newPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)) match {
-      case Success(_) => {
-        id = newId
-        fileLocation = newFileLocation
-        filePath = newPath
-        file.close()
-        file = new RandomAccessFile(filePath.toString, "rw")
-        writeLock.unlock()
-      }
-      case Failure(exception) => writeLock.unlock(); throw exception
-    }
+    Files.move(filePath, newPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    fileLocation = newFileLocation
+    filePath = newPath
+    file.close()
+    file = new RandomAccessFile(filePath.toString, "rw")
   })
+
+  def acquireReadLock[T](criticalSection: => T): T = {
+    readerLock.lock()
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => readerLock.unlock(); throw exception
+      case Success(value) => readerLock.unlock(); value
+    }
+  }
 
   def acquireWriteLock[T](criticalSection: => T): T = {
     writeLock.lock()
@@ -135,6 +140,5 @@ class Segment(var id: Int, val logFolder: String) {
     }
 
   }
-
 
 }
