@@ -1,9 +1,11 @@
 package com.scalask
 
+import com.typesafe.scalalogging.StrictLogging
+
 import scala.sys.process._
 import scala.util.Random
 
-object Driver extends App {
+object Driver extends App with StrictLogging {
   "rm -rf ./log-files" !
 
   val scalask: DB = new Scalask

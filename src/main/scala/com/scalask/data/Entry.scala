@@ -1,10 +1,10 @@
 package com.scalask.data
 
 import java.io.{BufferedReader, FileReader}
-import java.util.logging.Logger
 import java.util.zip.CRC32
 
 import com.scalask.model._
+import com.typesafe.scalalogging.LazyLogging
 
 sealed trait Entry {
   def getBytes: Array[Byte] = toString.getBytes()
@@ -31,9 +31,7 @@ case class KeyVal(key: String, value: String) extends Entry {
 }
 
 
-object Entry {
-  private val log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME)
-
+object Entry extends LazyLogging {
   private val checksumLen = 4
 
   def checksum(str: String): String = {
@@ -100,7 +98,7 @@ object Entry {
     val keyValueChecksum = keyValChecksum.dropWhile(_ != ',').slice(1, 1 + checksumLen)
 
     if (!verify(keyValue, keyValueChecksum)) {
-      log.warning(s"corrupt entry $keyValue $keyValueChecksum")
+      logger.warn(s"corrupt entry $keyValue $keyValueChecksum")
       return None
     }
 

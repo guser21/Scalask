@@ -1,16 +1,14 @@
 package com.scalask.compression
 
-import java.util.logging.Logger
-
 import com.scalask.data._
 import com.scalask.model._
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
-object LastTwoMerger extends Merger {
-  private val log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME)
+object LastTwoMerger extends Merger with LazyLogging {
 
   override def compressAsync(segList: SegmentList): Unit = Future {
     LastTwoMerger.synchronized {
@@ -27,7 +25,7 @@ object LastTwoMerger extends Merger {
 
     val removedKeys = new mutable.HashSet[String]()
 
-    log.info(s"Thread: ${Thread.currentThread()} Time $milis: merging ${seg1.id} and ${seg2.id}")
+    logger.debug(s"Time $milis: merging ${seg1.id} and ${seg2.id}")
 
     Entry.fromFile(seg2).map(_._1).reverse.foreach {
       //if in seg2 index =>  no del flag in this segment for that key
@@ -44,7 +42,7 @@ object LastTwoMerger extends Merger {
 
     //TODO locking with interface
     segmentList.acquireSegListWriteLock({
-      log.info(s"Thread: ${Thread.currentThread()} Time $milis: removing ${seg1.id} and ${seg2.id}")
+      logger.debug(s"Time $milis: removing ${seg1.id} and ${seg2.id}")
 
       segmentList.segments -= seg1
       segmentList.segments -= seg2
@@ -52,7 +50,7 @@ object LastTwoMerger extends Merger {
       seg2.delete()
 
       mergeSegment.reassignId(seg2.id)
-      log.info(s"Thread: ${Thread.currentThread()} Time $milis: adding  ${seg2.id} as merge of ${seg1.id} ${seg2.id}")
+      logger.debug(s"Time $milis: adding  ${seg2.id} as merge of ${seg1.id} ${seg2.id}")
 
       segmentList.segments.prepend(mergeSegment)
     })

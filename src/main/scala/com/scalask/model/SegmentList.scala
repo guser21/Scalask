@@ -3,17 +3,15 @@ package com.scalask.model
 import java.io.File
 import java.nio.file.{Files, Paths}
 import java.util.concurrent.locks.StampedLock
-import java.util.logging.Logger
 
 import com.scalask.compression._
 import com.scalask.data._
+import com.typesafe.scalalogging.{LazyLogging, StrictLogging}
 
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
-class SegmentList(logFolder: String, scheduler: MergeScheduler, fileLimit: Int = 1024) {
-  private val log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME)
-
+class SegmentList(logFolder: String, scheduler: MergeScheduler, fileLimit: Int = 1024) extends StrictLogging {
   val segments = new mutable.ListBuffer[Segment]
   private val segmentListLock = new StampedLock().asReadWriteLock()
   private val segmentListReadLock = segmentListLock.readLock()
@@ -46,13 +44,13 @@ class SegmentList(logFolder: String, scheduler: MergeScheduler, fileLimit: Int =
   })
 
   def put(key: String, value: String): Unit = acquireSegListReadLock({
-    log.info(s"Thread: ${Thread.currentThread()} put - key: $key value: $value")
+    logger.debug(s"put - key: $key value: $value")
     availableSegment().put(key, value)
   })
 
 
   def get(key: String): Option[String] = acquireSegListReadLock({
-    log.info(s"Thread: ${Thread.currentThread()} get - key: $key")
+    logger.debug(s"get - key: $key")
     segments.view.reverse.map(_.get(key)).find(_ != NoInfo()).getOrElse(NotInDatabase()) match {
       case NotInDatabase() => None
       case HasValue(value) => Option(value)
@@ -60,17 +58,27 @@ class SegmentList(logFolder: String, scheduler: MergeScheduler, fileLimit: Int =
     }
   })
 
+  def acquireSegListReadLock[T](criticalSection: => T): T = {
+    segmentListReadLock.lock()
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => segmentListReadLock.unlock(); throw exception
+      case Success(res) => segmentListReadLock.unlock(); res
+    }
+  }
+
   def remove(key: String): Unit = acquireSegListReadLock({
-    log.info(s"Thread: ${Thread.currentThread()} remove - key: $key")
+    logger.debug(s"remove - key: $key")
     availableSegment().setDeleteFlag(key)
   })
 
   private def availableSegment(): Segment = {
     if (segments.isEmpty || segments.last.size > fileLimit) {
       //TODO remove and get do not work together
-      log.info(s"Thread: ${Thread.currentThread()} availableSegments unlock readlock")
+      logger.debug(s"availableSegments unlock readlock")
       segmentListReadLock.unlock()
-      log.info(s"Thread: ${Thread.currentThread()} availableSegments lock writelock")
+      logger.debug(s"availableSegments lock writelock")
       segmentListWriteLock.lock()
       Try {
         //double check as between lock the state might have changed
@@ -93,16 +101,6 @@ class SegmentList(logFolder: String, scheduler: MergeScheduler, fileLimit: Int =
     val id = fileId
     val curSegment = new Segment(id, logFolder)
     segments += curSegment
-  }
-
-  def acquireSegListReadLock[T](criticalSection: => T): T = {
-    segmentListReadLock.lock()
-    Try {
-      criticalSection
-    } match {
-      case Failure(exception) => segmentListReadLock.unlock(); throw exception
-      case Success(res) => segmentListReadLock.unlock(); res
-    }
   }
 
   def acquireSegListWriteLock[T](criticalSection: => T): T = {

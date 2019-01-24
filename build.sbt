@@ -1,4 +1,4 @@
-import sbt.util
+
 
 name := "scalask"
 
@@ -10,4 +10,7 @@ sbtVersion := "1.2.8"
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.5"
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.5" % "test"
 
-logLevel := util.Level.Error
+libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
+libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.3.0-alpha4"
+
+

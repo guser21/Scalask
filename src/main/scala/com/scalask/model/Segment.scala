@@ -5,16 +5,15 @@ import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.StampedLock
-import java.util.logging.Logger
 
 import com.scalask.data._
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
-class Segment(var id: Int, val logFolder: String) {
-  private val log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME)
+class Segment(var id: Int, val logFolder: String) extends LazyLogging {
 
   private val index: mutable.Map[String, ValueLocation] = new ConcurrentHashMap[String, ValueLocation]().asScala
   private val removedKeys = ConcurrentHashMap.newKeySet[String]().asScala
@@ -35,7 +34,7 @@ class Segment(var id: Int, val logFolder: String) {
 
   //lock needed for offset
   def put(key: String, value: String): Unit = acquireWriteLock({
-    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id put - key: $key")
+    logger.debug(s"segment-id: $id put - key: $key")
 
     val entry = KeyVal(key, value)
     Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
@@ -47,7 +46,7 @@ class Segment(var id: Int, val logFolder: String) {
 
 
   def get(key: String): KeyState = acquireReadLock({
-    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id get - key: $key")
+    logger.debug(s"segment-id: $id get - key: $key")
 
     if (removedKeys.contains(key)) {
       NotInDatabase()
@@ -72,66 +71,13 @@ class Segment(var id: Int, val logFolder: String) {
   }
 
   def setDeleteFlag(key: String): Unit = acquireWriteLock({
-    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id setDeleteFlag - key: $key")
+    logger.debug(s"segment-id: $id setDeleteFlag - key: $key")
 
     val entry = RemoveFlag(key)
     Files.write(filePath, entry.getBytes, StandardOpenOption.APPEND)
     offset.getAndAdd(entry.length)
     removedKeys.add(key)
   })
-
-  def removeFromIndex(key: String): Unit = acquireWriteLock({
-    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id removeFromIndex - key: $key")
-
-    index.remove(key)
-  })
-
-  def size: Int = offset.get()
-
-  def delete(): Unit = acquireWriteLock({
-    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id delete segment")
-
-    file.close()
-    Files.delete(filePath)
-  })
-
-  def contains(key: String): Boolean = acquireReadLock({
-    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id contains - key: $key")
-
-    index.contains(key) && !removedKeys.contains(key)
-  })
-
-  /**
-    * Loads from the specified file then returns list of elements need to be removed from previous blocks
-    **/
-  def load(): Stream[String] = Entry.fromFile(filePath.toString).flatMap { case (entry, valueOffset) =>
-    entry match {
-      case kv: KeyVal => index += ((kv.key, ValueLocation(valueOffset, kv.value.length))); None
-      case r: RemoveFlag => index.remove(r.key); removedKeys.add(r.key); Option(r.key)
-    }
-  }
-
-  def reassignId(newId: Int): Unit = acquireWriteLock({
-    log.info(s"Thread: ${Thread.currentThread()} segment-id: $id reassignId - newId $newId")
-
-    val newFileLocation = s"$logFolder/$newId.log"
-    val newPath = Paths.get(newFileLocation)
-    Files.move(filePath, newPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-    fileLocation = newFileLocation
-    filePath = newPath
-    file.close()
-    file = new RandomAccessFile(filePath.toString, "rw")
-  })
-
-  def acquireReadLock[T](criticalSection: => T): T = {
-    readerLock.lock()
-    Try {
-      criticalSection
-    } match {
-      case Failure(exception) => readerLock.unlock(); throw exception
-      case Success(value) => readerLock.unlock(); value
-    }
-  }
 
   def acquireWriteLock[T](criticalSection: => T): T = {
     if (!writeLock.tryLock()) {
@@ -145,5 +91,58 @@ class Segment(var id: Int, val logFolder: String) {
     }
 
   }
+
+  def removeFromIndex(key: String): Unit = acquireWriteLock({
+    logger.debug(s"segment-id: $id removeFromIndex - key: $key")
+
+    index.remove(key)
+  })
+
+  def size: Int = offset.get()
+
+  def delete(): Unit = acquireWriteLock({
+    logger.debug(s"segment-id: $id delete segment")
+
+    file.close()
+    Files.delete(filePath)
+  })
+
+  def contains(key: String): Boolean = acquireReadLock({
+    logger.debug(s"segment-id: $id contains - key: $key")
+
+    index.contains(key) && !removedKeys.contains(key)
+  })
+
+  def acquireReadLock[T](criticalSection: => T): T = {
+    readerLock.lock()
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => readerLock.unlock(); throw exception
+      case Success(value) => readerLock.unlock(); value
+    }
+  }
+
+  /**
+    * Loads from the specified file then returns list of elements need to be removed from previous blocks
+    **/
+  def load(): Stream[String] = Entry.fromFile(filePath.toString).flatMap { case (entry, valueOffset) =>
+    entry match {
+      case kv: KeyVal => index += ((kv.key, ValueLocation(valueOffset, kv.value.length))); None
+      case r: RemoveFlag => index.remove(r.key); removedKeys.add(r.key); Option(r.key)
+    }
+  }
+
+  def reassignId(newId: Int): Unit = acquireWriteLock({
+    logger.debug(s"segment-id: $id reassignId - newId $newId")
+
+    val newFileLocation = s"$logFolder/$newId.log"
+    val newPath = Paths.get(newFileLocation)
+    Files.move(filePath, newPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    fileLocation = newFileLocation
+    filePath = newPath
+    file.close()
+    file = new RandomAccessFile(filePath.toString, "rw")
+  })
 
 }
