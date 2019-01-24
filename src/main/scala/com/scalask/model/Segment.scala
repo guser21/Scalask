@@ -49,10 +49,13 @@ class Segment(var id: Int, val logFolder: String) {
   def get(key: String): KeyState = acquireReadLock({
     log.info(s"Thread: ${Thread.currentThread()} segment-id: $id get - key: $key")
 
-    if (removedKeys.contains(key)) return NotInDatabase()
-    index.get(key) match {
-      case None => NoInfo()
-      case Some(value) => HasValue(getValue(value))
+    if (removedKeys.contains(key)) {
+      NotInDatabase()
+    } else {
+      index.get(key) match {
+        case None => NoInfo()
+        case Some(value) => HasValue(getValue(value))
+      }
     }
   })
 
@@ -131,7 +134,9 @@ class Segment(var id: Int, val logFolder: String) {
   }
 
   def acquireWriteLock[T](criticalSection: => T): T = {
-    writeLock.lock()
+    if (!writeLock.tryLock()) {
+      writeLock.lock()
+    }
     Try {
       criticalSection
     } match {
