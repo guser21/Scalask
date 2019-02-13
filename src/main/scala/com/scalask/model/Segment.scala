@@ -4,7 +4,7 @@ import java.io.RandomAccessFile
 import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.locks.StampedLock
+import java.util.concurrent.locks.{ReadWriteLock, StampedLock}
 
 import com.scalask.data._
 import com.typesafe.scalalogging.LazyLogging
@@ -19,7 +19,7 @@ class Segment(var id: Int, val logFolder: String) extends LazyLogging {
   private val removedKeys = ConcurrentHashMap.newKeySet[String]().asScala
 
   private val offset: AtomicInteger = new AtomicInteger(0)
-  private val lock = new StampedLock().asReadWriteLock()
+  private val lock: ReadWriteLock = new StampedLock().asReadWriteLock()
   private val writeLock = lock.writeLock()
   private val readerLock = lock.readLock()
 
@@ -29,7 +29,6 @@ class Segment(var id: Int, val logFolder: String) extends LazyLogging {
 
   if (!Files.exists(filePath)) Files.createFile(filePath)
 
-  //  private val removedList =
   def getFileLocation = fileLocation
 
   //lock needed for offset
@@ -79,18 +78,6 @@ class Segment(var id: Int, val logFolder: String) extends LazyLogging {
     removedKeys.add(key)
   })
 
-  def acquireWriteLock[T](criticalSection: => T): T = {
-    if (!writeLock.tryLock()) {
-      writeLock.lock()
-    }
-    Try {
-      criticalSection
-    } match {
-      case Failure(exception) => writeLock.unlock(); throw exception
-      case Success(res) => writeLock.unlock(); res
-    }
-
-  }
 
   def removeFromIndex(key: String): Unit = acquireWriteLock({
     logger.debug(s"segment-id: $id removeFromIndex - key: $key")
@@ -113,15 +100,6 @@ class Segment(var id: Int, val logFolder: String) extends LazyLogging {
     index.contains(key) && !removedKeys.contains(key)
   })
 
-  def acquireReadLock[T](criticalSection: => T): T = {
-    readerLock.lock()
-    Try {
-      criticalSection
-    } match {
-      case Failure(exception) => readerLock.unlock(); throw exception
-      case Success(value) => readerLock.unlock(); value
-    }
-  }
 
   /**
     * Loads from the specified file then returns list of elements need to be removed from previous blocks
@@ -144,5 +122,29 @@ class Segment(var id: Int, val logFolder: String) extends LazyLogging {
     file.close()
     file = new RandomAccessFile(filePath.toString, "rw")
   })
+
+  def acquireReadLock[T](criticalSection: => T): T = {
+    readerLock.lock()
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => readerLock.unlock(); throw exception
+      case Success(value) => readerLock.unlock(); value
+    }
+  }
+
+  def acquireWriteLock[T](criticalSection: => T): T = {
+
+    if (!writeLock.tryLock()) {
+      writeLock.lock()
+    }
+    Try {
+      criticalSection
+    } match {
+      case Failure(exception) => writeLock.unlock(); throw exception
+      case Success(res) => writeLock.unlock(); res
+    }
+
+  }
 
 }

@@ -18,7 +18,6 @@ case class RemoveFlag(key: String) extends Entry {
   override def toString: String = entry
 }
 
-//TODO delete fields
 case class KeyVal(key: String, value: String) extends Entry {
   private lazy val prefix = key.length + "," + value.length + ","
   private lazy val entry = prefix + key + value + "," + Entry.checksum(key + value) + '\n'

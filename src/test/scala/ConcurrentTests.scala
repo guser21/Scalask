@@ -1,15 +1,17 @@
 import com.scalask.compression.{LastTwoMerger, WheneverPossibleScheduler}
 import com.scalask.model.SegmentList
-import org.scalatest.{BeforeAndAfterEach, FunSuite}
+import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FunSuite}
 
 import scala.sys.process._
 
-class ConcurrentTests extends FunSuite with BeforeAndAfterEach {
-  val testFolder = "./log-files-test"
+class ConcurrentTests extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
+  val testFolder = "./log-files-concurrency-tests"
 
-  override def beforeEach() {
-    s"rm -rf $testFolder" !
-  }
+  private def cleanFolder = s"rm -rf $testFolder" !
+
+  override def beforeEach():Unit = cleanFolder
+
+  override def afterAll(): Unit = cleanFolder
 
 
   test("Concurrent put and get") {

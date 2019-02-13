@@ -25,7 +25,7 @@ object LastTwoMerger extends Merger with LazyLogging {
 
     val removedKeys = new mutable.HashSet[String]()
 
-    logger.debug(s"Time $milis: merging ${seg1.id} and ${seg2.id}")
+    logger.debug(s"Time $millis: merging ${seg1.id} and ${seg2.id}")
 
     Entry.fromFile(seg2).map(_._1).reverse.foreach {
       //if in seg2 index =>  no del flag in this segment for that key
@@ -40,9 +40,8 @@ object LastTwoMerger extends Merger with LazyLogging {
       .filter { case (key, _) => seg1.contains(key) }
       .foreach { case (key, value) => mergeSegment.put(key, value) }
 
-    //TODO locking with interface
     segmentList.acquireSegListWriteLock({
-      logger.debug(s"Time $milis: removing ${seg1.id} and ${seg2.id}")
+      logger.debug(s"Time $millis: removing ${seg1.id} and ${seg2.id}")
 
       segmentList.segments -= seg1
       segmentList.segments -= seg2
@@ -50,13 +49,13 @@ object LastTwoMerger extends Merger with LazyLogging {
       seg2.delete()
 
       mergeSegment.reassignId(seg2.id)
-      logger.debug(s"Time $milis: adding  ${seg2.id} as merge of ${seg1.id} ${seg2.id}")
+      logger.debug(s"Time $millis: adding  ${seg2.id} as merge of ${seg1.id} ${seg2.id}")
 
       segmentList.segments.prepend(mergeSegment)
     })
   }
 
-  private def milis = System.currentTimeMillis() % 1000 * 1000
+  private def millis = System.currentTimeMillis() % 1000 * 1000
 
   private def choose(segList: SegmentList): (Segment, Segment) = segList.acquireSegListReadLock({
     if (segList.segments.size < 3) throw new IllegalArgumentException("too few segments in seglist to merge")

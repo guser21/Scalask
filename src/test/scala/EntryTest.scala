@@ -1,16 +1,18 @@
 import com.scalask.compression.{LastTwoMerger, WheneverPossibleScheduler}
 import com.scalask.model.SegmentList
-import org.scalatest.{BeforeAndAfterEach, FunSuite}
+import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FunSuite}
 
 import scala.sys.process._
 import scala.util.Random
 
-class EntryTest extends FunSuite with BeforeAndAfterEach {
-  private val testFolder = "./log-files-test"
+class EntryTest extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
+  private val testFolder = "./log-files-full-test"
 
-  override def beforeEach() {
-    s"rm -rf ./$testFolder" !
-  }
+  private def cleanFolder = s"rm -rf $testFolder" !
+
+  override def beforeEach(): Unit = cleanFolder
+
+  override def afterAll(): Unit = cleanFolder
 
   test("Full Test") {
 
